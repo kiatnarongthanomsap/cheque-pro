@@ -1,30 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Printer, Settings, RefreshCcw, Check, Move, MousePointer2, RotateCcw, Languages, FileText, Download, Trash2, History, Building2, User, Loader2, Save, LogOut, LogIn, Landmark, Calendar, Hash, UserCheck, Banknote, Ban, Undo2, AlertTriangle, Type } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken, signOut } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, setDoc, getDoc } from 'firebase/firestore';
+import { Printer, Settings, RefreshCcw, Check, Move, MousePointer2, RotateCcw, Languages, FileText, Download, Trash2, History, Building2, User, Loader2, Save, LogOut, LogIn, Landmark, Calendar, Hash, UserCheck, Banknote, Ban, Undo2, AlertTriangle, Type, Database } from 'lucide-react';
 
-// --- Firebase Initialization ---
-// Fallback for development if globals are not defined
-const firebaseConfig = (typeof __firebase_config !== 'undefined' && __firebase_config) ? JSON.parse(__firebase_config) : {
-    apiKey: "demo-key",
-    authDomain: "demo.firebaseapp.com",
-    projectId: "demo-project",
-    storageBucket: "demo.appspot.com",
-    messagingSenderId: "123456789",
-    appId: "1:123456789:web:abcdef"
+// --- MOCK CONSTANTS ---
+const MOCK_USER = { uid: 'local-admin', email: 'admin@local.test', displayName: 'Local Admin' };
+const STORAGE_KEYS = {
+    USER: 'cp_user',
+    HISTORY: 'cp_history',
+    SETTINGS: 'cp_settings'
 };
-
-let app, auth, db;
-try {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-} catch (e) {
-    console.warn("Firebase initialization failed, likely due to mock config.", e);
-}
-
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
 // --- Helper: Thai Baht Text ---
 const thaiNumberToText = (number) => {
@@ -206,99 +189,64 @@ export default function ChequePrinter() {
         isDragging: false, draggedId: null, startX: 0, startY: 0, initialItemX: 0, initialItemY: 0, pixelsPerMm: 3.78
     });
 
-    // --- Firebase Auth ---
+    // --- Auth & Data Loading (Mock) ---
 
     useEffect(() => {
-        const initAuth = async () => {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            }
-        };
-        initAuth();
-
-        if (auth) {
-            const unsubscribe = onAuthStateChanged(auth, (u) => {
-                setUser(u);
-                setAuthLoading(false);
-            });
-            return () => unsubscribe();
-        } else {
-            setAuthLoading(false);
+        // Simulate Auth Check
+        const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+        if (storedUser) {
+            setUser(JSON.parse(storedUser));
         }
+        setAuthLoading(false);
     }, []);
 
-    const handleLogin = async () => {
-        if (!auth) {
-            alert("Firebase not configured correctly.");
-            return;
-        }
-        setAuthLoading(true);
-        try {
-            await signInAnonymously(auth);
-        } catch (error) {
-            console.error("Login failed", error);
-            setAuthLoading(false);
-        }
-    };
-
-    const handleLogout = async () => {
-        if (!auth) return;
-        try {
-            await signOut(auth);
-            setHistory([]);
-            setPositions(bankPresets['standard'].positions);
-            setOffsets({ x: 0, y: 0 });
-            setFontConfig({ family: 'Sarabun', size: 16, isBold: false });
-        } catch (error) {
-            console.error("Logout failed", error);
-        }
-    };
-
-    // --- Data Sync ---
     useEffect(() => {
-        if (!user || !db) return;
+        if (!user) return;
         setDataLoading(true);
 
-        const historyQuery = collection(db, 'artifacts', appId, 'users', user.uid, 'cheque_history');
-
-        // Safety check for Firestore
         try {
-            const unsubHistory = onSnapshot(historyQuery, (snapshot) => {
-                const loadedHistory = snapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data()
-                })).sort((a, b) => b.createdAt - a.createdAt);
-                setHistory(loadedHistory);
-                setDataLoading(false);
-            }, (error) => {
-                console.error("Error fetching history:", error);
-                setDataLoading(false);
-            });
+            // Load History
+            const savedHistory = localStorage.getItem(STORAGE_KEYS.HISTORY);
+            if (savedHistory) {
+                setHistory(JSON.parse(savedHistory));
+            }
 
-            const settingsRef = doc(db, 'artifacts', appId, 'users', user.uid, 'user_settings', 'config');
-
-            const unsubSettings = onSnapshot(settingsRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    const config = docSnap.data();
-                    if (config.positions) setPositions(config.positions);
-                    if (config.offsets) setOffsets(config.offsets);
-                    if (config.selectedBank) setSelectedBank(config.selectedBank);
-                    if (config.lang) setLang(config.lang);
-                    if (config.fontConfig) setFontConfig(config.fontConfig);
-                }
-            }, (error) => {
-                console.error("Error fetching settings:", error);
-            });
-
-            return () => {
-                unsubHistory();
-                unsubSettings();
-            };
+            // Load Settings
+            const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+            if (savedSettings) {
+                const config = JSON.parse(savedSettings);
+                if (config.positions) setPositions(config.positions);
+                if (config.offsets) setOffsets(config.offsets);
+                if (config.selectedBank) setSelectedBank(config.selectedBank);
+                if (config.lang) setLang(config.lang);
+                if (config.fontConfig) setFontConfig(config.fontConfig);
+            }
         } catch (e) {
-            console.error("Firestore error", e);
+            console.error("Error loading mock data", e);
+        } finally {
             setDataLoading(false);
         }
     }, [user]);
+
+    const handleLogin = async () => {
+        setAuthLoading(true);
+        // Simulate network delay
+        setTimeout(() => {
+            const mockUser = MOCK_USER;
+            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(mockUser));
+            setUser(mockUser);
+            setAuthLoading(false);
+        }, 800);
+    };
+
+    const handleLogout = async () => {
+        localStorage.removeItem(STORAGE_KEYS.USER);
+        setUser(null);
+        setHistory([]);
+        setPositions(bankPresets['standard'].positions);
+        setOffsets({ x: 0, y: 0 });
+        setFontConfig({ family: 'Sarabun', size: 16, isBold: false });
+    };
 
     // --- Real-time Duplicate Warning Effect ---
     useEffect(() => {
@@ -322,21 +270,16 @@ export default function ChequePrinter() {
     }, [data.chequeNo, selectedBank, history, user]);
 
     // --- Handlers ---
-    const saveSettings = async (newPositions, newOffsets, newBank, newLang, newFontConfig) => {
-        if (!user || !db) return;
-        const settingsRef = doc(db, 'artifacts', appId, 'users', user.uid, 'user_settings', 'config');
-        try {
-            await setDoc(settingsRef, {
-                positions: newPositions || positions,
-                offsets: newOffsets || offsets,
-                selectedBank: newBank || selectedBank,
-                lang: newLang || lang,
-                fontConfig: newFontConfig || fontConfig,
-                updatedAt: Date.now()
-            }, { merge: true });
-        } catch (e) {
-            console.error("Save settings error", e);
-        }
+    const saveSettings = (newPositions, newOffsets, newBank, newLang, newFontConfig) => {
+        const newSettings = {
+            positions: newPositions || positions,
+            offsets: newOffsets || offsets,
+            selectedBank: newBank || selectedBank,
+            lang: newLang || lang,
+            fontConfig: newFontConfig || fontConfig,
+            updatedAt: Date.now()
+        };
+        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
     };
 
     const handleBankChange = (e) => {
@@ -437,7 +380,7 @@ export default function ChequePrinter() {
         saveSettings(null, newOffsets, null, null, null);
     }
 
-    // --- REVISED: Print Handler (Sync) ---
+    // --- Print Handler (Mock) ---
     const handlePrintCheque = () => {
         if (!user || isSaving) return;
 
@@ -458,53 +401,43 @@ export default function ChequePrinter() {
 
         setIsSaving(true);
 
-        // 3. Print Immediately (No timeout to prevent blocking)
-        // The delay here is kept small just to ensure state 'isSaving' propagates if needed, 
-        // but effectively it's instant.
+        // 3. Print Immediately
         setTimeout(() => {
             window.print();
         }, 50);
 
-        // 4. Save Background
-        if (db) {
-            addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'cheque_history'), {
-                createdAt: Date.now(),
-                printDate: new Date().toLocaleString('th-TH'),
-                ...data,
-                chequeLang: lang,
-                bank: bankPresets[selectedBank].label,
-                status: 'SUCCESS'
-            }).then(() => {
-                console.log("Saved");
-            }).catch(e => console.error("Save error", e))
-                .finally(() => setTimeout(() => setIsSaving(false), 2000));
-        } else {
-            setTimeout(() => setIsSaving(false), 2000);
-        }
+        // 4. Save to Mock DB
+        const newItem = {
+            id: crypto.randomUUID(),
+            createdAt: Date.now(),
+            printDate: new Date().toLocaleString('th-TH'),
+            ...data,
+            chequeLang: lang,
+            bank: bankPresets[selectedBank].label,
+            status: 'SUCCESS'
+        };
+
+        setTimeout(() => {
+            const newHistory = [newItem, ...history];
+            setHistory(newHistory);
+            localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(newHistory));
+            setIsSaving(false);
+        }, 1000);
     };
 
-    const handleToggleStatus = async (id, currentStatus) => {
-        if (!user || !db) return;
+    const handleToggleStatus = (id, currentStatus) => {
         const newStatus = currentStatus === 'VOID' ? 'SUCCESS' : 'VOID';
-        const ref = doc(db, 'artifacts', appId, 'users', user.uid, 'cheque_history', id);
-        try {
-            await setDoc(ref, { status: newStatus }, { merge: true });
-        } catch (e) {
-            console.error("Error updating status", e);
-        }
+        const newHistory = history.map(item => item.id === id ? { ...item, status: newStatus } : item);
+        setHistory(newHistory);
+        localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(newHistory));
     };
 
     const handlePrintReport = () => window.print();
 
-    const handleClearHistory = async () => {
-        if (!user || !db) return;
-        if (confirm('คุณแน่ใจหรือไม่ที่จะลบประวัติการพิมพ์ทั้งหมด?')) {
-            setDataLoading(true);
-            const promises = history.map(item =>
-                deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'cheque_history', item.id))
-            );
-            await Promise.all(promises);
-            setDataLoading(false);
+    const handleClearHistory = () => {
+        if (confirm('คุณแน่ใจหรือไม่ที่จะลบประวัติการพิมพ์ทั้งหมด? (ข้อมูลใน Local Storage จะหายไป)')) {
+            setHistory([]);
+            localStorage.removeItem(STORAGE_KEYS.HISTORY);
         }
     };
 
@@ -556,15 +489,19 @@ export default function ChequePrinter() {
                     <h1 className="text-2xl font-bold text-gray-800 mb-2">ระบบพิมพ์เช็ค (Cheque Printer)</h1>
                     <p className="text-gray-500 mb-8">กรุณาเข้าสู่ระบบเพื่อจัดการการพิมพ์และบันทึกประวัติของคุณ</p>
 
+                    <div className="bg-amber-50 border border-amber-200 rounded p-3 mb-6 text-xs text-amber-800 text-left">
+                        <strong>Demo Mode:</strong> ข้อมูลทั้งหมดจะถูกบันทึกในเครื่องของคุณ (Local Storage) เท่านั้น
+                    </div>
+
                     <button
                         onClick={handleLogin}
                         disabled={authLoading}
                         className="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-70 shadow-md"
                     >
-                        {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
-                        {authLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ (Secure Login)'}
+                        {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Database className="w-5 h-5" />}
+                        {authLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ (Local Demo)'}
                     </button>
-                    <p className="text-xs text-gray-400 mt-4">ระบบรักษาความปลอดภัยมาตรฐานสากล</p>
+                    <p className="text-xs text-gray-400 mt-4">Offline Mode Enabled</p>
                 </div>
             </div>
         );
@@ -572,7 +509,7 @@ export default function ChequePrinter() {
 
     // --- App Screen ---
     return (
-        <div className="min-h-screen bg-gray-100 font-sans p-4 md:p-8 print:p-0 print:bg-white">
+        <div className="min-h-screen bg-gray-100 font-sans p-4 md:p-8 print:p-0 print:bg-white text-gray-900">
 
             {/* Import Google Fonts */}
             <style>{`
@@ -600,7 +537,7 @@ export default function ChequePrinter() {
                     <div className="flex items-center gap-2 text-sm text-gray-600 bg-white px-3 py-1.5 rounded-lg shadow-sm border border-gray-200">
                         <User className="w-4 h-4 text-blue-600" />
                         <span className="hidden sm:inline">User:</span>
-                        <span className="font-mono text-xs text-gray-400">{user.uid.slice(0, 6)}...</span>
+                        <span className="font-mono text-xs text-gray-400 font-bold">{user.displayName}</span>
                     </div>
                     <button
                         onClick={handleLogout}
