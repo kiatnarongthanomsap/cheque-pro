@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Printer, Settings, RefreshCcw, Check, Move, MousePointer2, RotateCcw, Languages, FileText, Download, Trash2, History, Building2, User, Loader2, Save, LogOut, LogIn, Landmark, Calendar, Hash, UserCheck, Banknote, Ban, Undo2, AlertTriangle, Type, Database } from 'lucide-react';
+import { Printer, Settings, RefreshCcw, Check, Move, MousePointer2, RotateCcw, Languages, FileText, Download, Trash2, History, Building2, User, Loader2, Save, LogOut, LogIn, Landmark, Calendar, Hash, UserCheck, Banknote, Ban, Undo2, AlertTriangle, Type, Database, Facebook, Mail, Smartphone, Apple } from 'lucide-react';
 
-// --- MOCK CONSTANTS ---
-const MOCK_USER = { uid: 'local-admin', email: 'admin@local.test', displayName: 'Local Admin' };
+// --- MOCK STORAGE KEYS & HELPERS ---
 const STORAGE_KEYS = {
-    USER: 'cp_user',
-    HISTORY: 'cp_history',
-    SETTINGS: 'cp_settings'
+    USERS: 'cp_users', // Stores list of all users
+    LAST_USER: 'cp_last_active_user',
+    // Dynamic keys generator
+    getUserHistoryKey: (uid) => `cp_history_${uid}`,
+    getUserSettingsKey: (uid) => `cp_settings_${uid}`
 };
 
 // --- Helper: Thai Baht Text ---
@@ -157,6 +158,7 @@ export default function ChequePrinter() {
     const [authLoading, setAuthLoading] = useState(true);
     const [dataLoading, setDataLoading] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [emailInput, setEmailInput] = useState('');
     const [duplicateWarning, setDuplicateWarning] = useState(null);
 
     const [selectedBank, setSelectedBank] = useState('standard');
@@ -190,29 +192,35 @@ export default function ChequePrinter() {
     });
 
     // --- Auth & Data Loading (Mock) ---
-
     useEffect(() => {
-        // Simulate Auth Check
-        const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
-        if (storedUser) {
-            setUser(JSON.parse(storedUser));
+        // Check for last active session
+        const lastUserId = localStorage.getItem(STORAGE_KEYS.LAST_USER);
+        if (lastUserId) {
+            const users = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
+            const foundUser = users.find(u => u.id === lastUserId);
+            if (foundUser) {
+                setUser(foundUser);
+            }
         }
         setAuthLoading(false);
     }, []);
 
-    useEffect(() => {
-        if (!user) return;
+    const loadUserData = useCallback((currentUser) => {
+        if (!currentUser) return;
         setDataLoading(true);
-
         try {
             // Load History
-            const savedHistory = localStorage.getItem(STORAGE_KEYS.HISTORY);
+            const historyKey = STORAGE_KEYS.getUserHistoryKey(currentUser.id);
+            const savedHistory = localStorage.getItem(historyKey);
             if (savedHistory) {
                 setHistory(JSON.parse(savedHistory));
+            } else {
+                setHistory([]);
             }
 
             // Load Settings
-            const savedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+            const settingsKey = STORAGE_KEYS.getUserSettingsKey(currentUser.id);
+            const savedSettings = localStorage.getItem(settingsKey);
             if (savedSettings) {
                 const config = JSON.parse(savedSettings);
                 if (config.positions) setPositions(config.positions);
@@ -220,29 +228,76 @@ export default function ChequePrinter() {
                 if (config.selectedBank) setSelectedBank(config.selectedBank);
                 if (config.lang) setLang(config.lang);
                 if (config.fontConfig) setFontConfig(config.fontConfig);
+            } else {
+                // Reset defaults for new user
+                setPositions(bankPresets['standard'].positions);
+                setOffsets({ x: 0, y: 0 });
+                setSelectedBank('standard');
+                setLang('TH');
+                setFontConfig({ family: 'Sarabun', size: 16, isBold: false });
             }
         } catch (e) {
-            console.error("Error loading mock data", e);
+            console.error("Error loading user data", e);
         } finally {
             setDataLoading(false);
         }
-    }, [user]);
+    }, []);
 
-    const handleLogin = async () => {
+    useEffect(() => {
+        loadUserData(user);
+    }, [user, loadUserData]);
+
+    // --- Login Handlers ---
+    const performLogin = (userInfo) => {
         setAuthLoading(true);
-        // Simulate network delay
         setTimeout(() => {
-            const mockUser = MOCK_USER;
-            localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(mockUser));
-            setUser(mockUser);
+            // Update User DB
+            const users = JSON.parse(localStorage.getItem(STORAGE_KEYS.USERS) || '[]');
+            if (!users.find(u => u.id === userInfo.id)) {
+                users.push(userInfo);
+                localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+            }
+
+            // Set Session
+            localStorage.setItem(STORAGE_KEYS.LAST_USER, userInfo.id);
+            setUser(userInfo);
             setAuthLoading(false);
         }, 800);
     };
 
+    const handleEmailLogin = (e) => {
+        e.preventDefault();
+        if (!emailInput.trim()) return;
+        const id = `u_email_${emailInput.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        performLogin({
+            id: id,
+            provider: 'email',
+            displayName: emailInput.split('@')[0],
+            email: emailInput
+        });
+    };
+
+    const handleSocialLogin = (provider) => {
+        // Simulate Social IDs
+        const names = {
+            facebook: 'Facebook User',
+            line: 'Line User',
+            apple: 'Apple User'
+        };
+        const id = `u_${provider}_demo`;
+        performLogin({
+            id: id,
+            provider: provider,
+            displayName: names[provider] || 'User',
+            email: `${provider}@mock.login`
+        });
+    };
+
     const handleLogout = async () => {
-        localStorage.removeItem(STORAGE_KEYS.USER);
+        localStorage.removeItem(STORAGE_KEYS.LAST_USER);
         setUser(null);
         setHistory([]);
+        setEmailInput('');
         setPositions(bankPresets['standard'].positions);
         setOffsets({ x: 0, y: 0 });
         setFontConfig({ family: 'Sarabun', size: 16, isBold: false });
@@ -271,6 +326,7 @@ export default function ChequePrinter() {
 
     // --- Handlers ---
     const saveSettings = (newPositions, newOffsets, newBank, newLang, newFontConfig) => {
+        if (!user) return;
         const newSettings = {
             positions: newPositions || positions,
             offsets: newOffsets || offsets,
@@ -279,7 +335,7 @@ export default function ChequePrinter() {
             fontConfig: newFontConfig || fontConfig,
             updatedAt: Date.now()
         };
-        localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(newSettings));
+        localStorage.setItem(STORAGE_KEYS.getUserSettingsKey(user.id), JSON.stringify(newSettings));
     };
 
     const handleBankChange = (e) => {
@@ -406,7 +462,7 @@ export default function ChequePrinter() {
             window.print();
         }, 50);
 
-        // 4. Save to Mock DB
+        // 4. Save to Mock DB (User Namespaced)
         const newItem = {
             id: crypto.randomUUID(),
             createdAt: Date.now(),
@@ -420,7 +476,7 @@ export default function ChequePrinter() {
         setTimeout(() => {
             const newHistory = [newItem, ...history];
             setHistory(newHistory);
-            localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(newHistory));
+            localStorage.setItem(STORAGE_KEYS.getUserHistoryKey(user.id), JSON.stringify(newHistory));
             setIsSaving(false);
         }, 1000);
     };
@@ -429,15 +485,15 @@ export default function ChequePrinter() {
         const newStatus = currentStatus === 'VOID' ? 'SUCCESS' : 'VOID';
         const newHistory = history.map(item => item.id === id ? { ...item, status: newStatus } : item);
         setHistory(newHistory);
-        localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(newHistory));
+        localStorage.setItem(STORAGE_KEYS.getUserHistoryKey(user.id), JSON.stringify(newHistory));
     };
 
     const handlePrintReport = () => window.print();
 
     const handleClearHistory = () => {
-        if (confirm('คุณแน่ใจหรือไม่ที่จะลบประวัติการพิมพ์ทั้งหมด? (ข้อมูลใน Local Storage จะหายไป)')) {
+        if (confirm('คุณแน่ใจหรือไม่ที่จะลบประวัติการพิมพ์ทั้งหมดของบัญชีนี้? (ข้อมูลใน Local Storage จะหายไป)')) {
             setHistory([]);
-            localStorage.removeItem(STORAGE_KEYS.HISTORY);
+            localStorage.removeItem(STORAGE_KEYS.getUserHistoryKey(user.id));
         }
     };
 
@@ -450,7 +506,7 @@ export default function ChequePrinter() {
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "cheque_history.csv");
+        link.setAttribute("download", `cheque_history_${user.id}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -482,26 +538,70 @@ export default function ChequePrinter() {
     if (!user) {
         return (
             <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
-                <div className="bg-white p-8 rounded-xl shadow-lg max-w-md w-full text-center">
-                    <div className="bg-blue-50 p-4 rounded-full w-24 h-24 mx-auto flex items-center justify-center mb-6 border-4 border-blue-100">
-                        <Landmark className="w-12 h-12 text-blue-900" />
+                <div className="bg-white p-6 md:p-8 rounded-2xl shadow-xl max-w-md w-full">
+                    {/* Header */}
+                    <div className="text-center mb-8">
+                        <div className="bg-blue-50 p-4 rounded-full w-20 h-20 mx-auto flex items-center justify-center mb-4 border-4 border-blue-100">
+                            <Landmark className="w-10 h-10 text-blue-900" />
+                        </div>
+                        <h1 className="text-2xl font-bold text-gray-900">Cheque Printer Pro</h1>
+                        <p className="text-gray-500 mt-1">จัดการทุกการสั่งจ่าย ได้ง่ายในที่เดียว</p>
                     </div>
-                    <h1 className="text-2xl font-bold text-gray-800 mb-2">ระบบพิมพ์เช็ค (Cheque Printer)</h1>
-                    <p className="text-gray-500 mb-8">กรุณาเข้าสู่ระบบเพื่อจัดการการพิมพ์และบันทึกประวัติของคุณ</p>
 
-                    <div className="bg-amber-50 border border-amber-200 rounded p-3 mb-6 text-xs text-amber-800 text-left">
-                        <strong>Demo Mode:</strong> ข้อมูลทั้งหมดจะถูกบันทึกในเครื่องของคุณ (Local Storage) เท่านั้น
+                    {/* Social Logins */}
+                    <div className="grid grid-cols-3 gap-3 mb-6">
+                        <button onClick={() => handleSocialLogin('facebook')} className="flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-200 transition group">
+                            <Facebook className="w-6 h-6 text-blue-600 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs text-gray-600">Facebook</span>
+                        </button>
+                        <button onClick={() => handleSocialLogin('line')} className="flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-200 transition group">
+                            <Smartphone className="w-6 h-6 text-green-500 group-hover:scale-110 transition-transform" />
+                            <span className="text-xs text-gray-600">Line</span>
+                        </button>
+                        <button onClick={() => handleSocialLogin('apple')} className="flex flex-col items-center justify-center gap-1 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition group">
+                            <Apple className="w-6 h-6 text-black group-hover:scale-110 transition-transform" />
+                            <span className="text-xs text-gray-600">Apple</span>
+                        </button>
                     </div>
 
-                    <button
-                        onClick={handleLogin}
-                        disabled={authLoading}
-                        className="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-70 shadow-md"
-                    >
-                        {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Database className="w-5 h-5" />}
-                        {authLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ (Local Demo)'}
-                    </button>
-                    <p className="text-xs text-gray-400 mt-4">Offline Mode Enabled</p>
+                    <div className="relative flex py-2 items-center mb-6">
+                        <div className="flex-grow border-t border-gray-200"></div>
+                        <span className="flex-shrink-0 mx-4 text-gray-400 text-xs">หรือ เข้าสู่ระบบด้วยอีเมล</span>
+                        <div className="flex-grow border-t border-gray-200"></div>
+                    </div>
+
+                    {/* Email Form */}
+                    <form onSubmit={handleEmailLogin} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">อีเมลผู้ใช้งาน</label>
+                            <div className="relative">
+                                <Mail className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                                <input
+                                    type="email"
+                                    required
+                                    value={emailInput}
+                                    onChange={(e) => setEmailInput(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition"
+                                    placeholder="yourname@example.com"
+                                />
+                            </div>
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={authLoading}
+                            className="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-70 shadow-md"
+                        >
+                            {authLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <LogIn className="w-5 h-5" />}
+                            {authLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ / ลงทะเบียน'}
+                        </button>
+                    </form>
+
+                    {/* Footer Notice */}
+                    <div className="mt-8 text-center">
+                        <p className="text-xs text-gray-400 bg-gray-50 p-2 rounded border border-gray-100">
+                            🔒 <strong>Data Privacy:</strong> ข้อมูลทั้งหมดจะถูกเก็บไว้ในเครื่องของคุณ (Local Storage) เท่านั้น ไม่มีการส่งข้อมูลขึ้น Server ภายนอก
+                        </p>
+                    </div>
                 </div>
             </div>
         );
@@ -515,6 +615,54 @@ export default function ChequePrinter() {
             <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Charmonman:wght@400;700&family=Krub:wght@300;400;500;700&family=Sarabun:wght@300;400;500;700&display=swap');
       `}</style>
+
+            {/* Print Styles Block */}
+            <style>{`
+            @media print {
+            @page { size: auto; margin: 0; }
+            body { 
+                background: white; 
+                margin: 0; 
+                padding: 0; 
+                visibility: hidden; /* Hide everything by default */
+            }
+            
+            /* Unhide the root container to allow children to be visible */
+            #root { visibility: visible; }
+
+            /* Explicitly hide non-printable elements */
+            .print\\:hidden { display: none !important; }
+
+            /* Make the printable cheque visible */
+            .printable-cheque { 
+                visibility: visible;
+                display: flex !important; 
+                position: fixed !important; 
+                top: 0 !important; 
+                left: 0 !important; 
+                width: 100% !important; 
+                height: 100% !important;
+                z-index: 9999;
+                background-color: white;
+                align-items: flex-start; /* Ensure top alignment */
+                justify-content: center;
+            }
+            
+            /* Report printing styles */
+            .printable-report {
+                visibility: visible;
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+            }
+            
+            /* Allow specific children of printable areas to be visible */
+            .printable-cheque *, .printable-report * {
+                visibility: visible;
+            }
+            }
+        `}</style>
 
             {/* --- Header & Tabs (Hidden on Print) --- */}
             <div className="max-w-5xl mx-auto mb-4 flex flex-col md:flex-row md:items-end justify-between gap-4 print:hidden">
@@ -909,53 +1057,6 @@ export default function ChequePrinter() {
                     </div>
                 </div>
             )}
-
-            <style>{`
-        @media print {
-          @page { size: auto; margin: 0; }
-          body { 
-            background: white; 
-            margin: 0; 
-            padding: 0; 
-            visibility: hidden; /* Hide everything by default */
-          }
-          
-          /* Unhide the root container to allow children to be visible */
-          #root { visibility: visible; }
-
-          /* Explicitly hide non-printable elements */
-          .print\\:hidden { display: none !important; }
-
-          /* Make the printable cheque visible */
-          .printable-cheque { 
-             visibility: visible;
-             display: flex !important; 
-             position: fixed !important; 
-             top: 0 !important; 
-             left: 0 !important; 
-             width: 100% !important; 
-             height: 100% !important;
-             z-index: 9999;
-             background-color: white;
-             align-items: flex-start; /* Ensure top alignment */
-             justify-content: center;
-          }
-          
-          /* Report printing styles */
-          .printable-report {
-             visibility: visible;
-             position: absolute;
-             top: 0;
-             left: 0;
-             width: 100%;
-          }
-          
-          /* Allow specific children of printable areas to be visible */
-          .printable-cheque *, .printable-report * {
-              visibility: visible;
-          }
-        }
-      `}</style>
         </div>
     );
 }
