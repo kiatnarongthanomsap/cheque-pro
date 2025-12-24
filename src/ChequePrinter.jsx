@@ -913,33 +913,47 @@ export default function ChequePrinter() {
             <style>{`
         @media print {
           @page { size: auto; margin: 0; }
-          body { background: white; margin: 0; padding: 0; }
+          body { 
+            background: white; 
+            margin: 0; 
+            padding: 0; 
+            visibility: hidden; /* Hide everything by default */
+          }
           
-          /* Hide everything that has print:hidden class explicitly */
+          /* Unhide the root container to allow children to be visible */
+          #root { visibility: visible; }
+
+          /* Explicitly hide non-printable elements */
           .print\\:hidden { display: none !important; }
 
-          /* Ensure root container doesn't restrict height/overflow */
-          #root, .min-h-screen { height: auto !important; overflow: visible !important; }
-
-          /* Target the specific printable areas */
+          /* Make the printable cheque visible */
           .printable-cheque { 
+             visibility: visible;
              display: flex !important; 
-             position: absolute !important; 
+             position: fixed !important; 
              top: 0 !important; 
              left: 0 !important; 
              width: 100% !important; 
              height: 100% !important;
              z-index: 9999;
              background-color: white;
+             align-items: flex-start; /* Ensure top alignment */
+             justify-content: center;
           }
           
+          /* Report printing styles */
           .printable-report {
-             display: block !important;
-             width: 100% !important;
+             visibility: visible;
+             position: absolute;
+             top: 0;
+             left: 0;
+             width: 100%;
           }
           
-          /* Hide the 'hidden' class elements even in print */
-          .hidden { display: none !important; }
+          /* Allow specific children of printable areas to be visible */
+          .printable-cheque *, .printable-report * {
+              visibility: visible;
+          }
         }
       `}</style>
         </div>
